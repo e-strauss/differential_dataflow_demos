@@ -1,4 +1,4 @@
-# README for Differential Dataflow Demos
+# Differential Dataflow Demos
 
 ## Overview
 
