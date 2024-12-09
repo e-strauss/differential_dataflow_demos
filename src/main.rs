@@ -11,7 +11,7 @@ fn main() {
     println!("-----------------------------------------------------------------------------------");
     demo1();
     println!("-----------------------------------------------------------------------------------");
-    demo2();
+    //demo2();
     println!("-----------------------------------------------------------------------------------");
 }
 
@@ -22,26 +22,47 @@ fn demo1() {
         // create an input collection of data.
         let mut input = InputSession::new();
 
-        // define a new computation.
-        worker.dataflow(|scope| {
+        // create a manager
+        let probe = worker.dataflow(|scope| {
 
-            // create a new collection from our input.
+            // create a new collection from an input session.
             let manages = input.to_collection(scope);
 
             // if (m2, m1) and (m1, p), then output (m1, (m2, p))
             manages
                 .map(|(m2, m1)| (m1, m2))
                 .join(&manages)
-                .inspect(|x| println!("{:?}", x));
+                // .inspect(|x| println!("{:?}", x))
+                .probe()
         });
 
         // Set a size for our organization from the input.
-        let size = std::env::args().nth(1).and_then(|s| s.parse::<u32>().ok()).unwrap_or(10);
+        let size = std::env::args().nth(1).and_then(|s| s.parse::<usize>().ok()).unwrap_or(10);
 
         // Load input (a binary tree).
         input.advance_to(0);
-        for person in 0 .. size {
+        let mut person = worker.index();
+        while person < size {
             input.insert((person/2, person));
+            person += worker.peers();
+        }
+
+        // wait for data loading.
+        input.advance_to(1);
+        input.flush();
+        while probe.less_than(&input.time()) { worker.step(); }
+        println!("{:?}\tdata loaded", worker.timer().elapsed());
+
+        // make changes, but await completion.
+        let mut person = 1 + worker.index();
+        while person < size {
+            input.remove((person/2, person));
+            input.insert((person/3, person));
+            input.advance_to(person);
+            input.flush();
+            while probe.less_than(&input.time()) { worker.step(); }
+            println!("{:?}\tstep {} complete", worker.timer().elapsed(), person);
+            person += worker.peers();
         }
 
     }).expect("Computation terminated abnormally");
